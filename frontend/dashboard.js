@@ -15,10 +15,10 @@ const state = {
   charts: {},
 };
 
-/* ── Chart.js defaults ───────────────────────────────────────────────────── */
-Chart.defaults.color = "#8b949e";
-Chart.defaults.borderColor = "#30363d";
-Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+/* ── Chart.js defaults — Hakuna light theme ──────────────────────────────── */
+Chart.defaults.color = "#6B7280";
+Chart.defaults.borderColor = "#E5E7EB";
+Chart.defaults.font.family = '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
 Chart.defaults.font.size = 11;
 
 /* ── Utils ────────────────────────────────────────────────────────────────── */
@@ -28,11 +28,11 @@ const fmt = (v, unit = " days") =>
 const fmtDate = (s) => (s ? new Date(s).toLocaleDateString() : "–");
 
 const cvssColor = (v) => {
-  if (v == null) return "#8b949e";
-  if (v >= 9) return "#f85149";
-  if (v >= 7) return "#e3b341";
-  if (v >= 4) return "#3fb950";
-  return "#79c0ff";
+  if (v == null) return "#6B7280";
+  if (v >= 9) return "#DC2626";   // critical — Hakuna red
+  if (v >= 7) return "#D97706";   // high — Hakuna orange
+  if (v >= 4) return "#16A34A";   // medium — Hakuna green
+  return "#2563EB";               // low — Hakuna blue
 };
 
 const domainClass = (d) => `domain-${d || "other"}`;
@@ -50,8 +50,8 @@ function renderKPIs(data) {
   document.getElementById("kevCves").textContent =
     data.kev_cves?.toLocaleString() ?? "–";
   document.getElementById("avgMttr").textContent = fmt(data.avg_mttr_days);
-  document.getElementById("medianMttr").textContent =
-    `Median: ${fmt(data.median_mttr_days)}`;
+  document.getElementById("medianMttr").innerHTML =
+    `<span class="kpi-status"><span class="dot dot-flat"></span> Median: ${fmt(data.median_mttr_days)} &nbsp;·&nbsp; SLA: 30d</span>`;
   document.getElementById("avgMtte").textContent = fmt(data.avg_mtte_days);
   document.getElementById("avgExposure").textContent = fmt(
     data.avg_exposure_window_days
@@ -86,29 +86,32 @@ function renderTrendChart(trends) {
         {
           label: "Avg MTTR (days)",
           data: smooth(mttrs),
-          borderColor: "#e3b341",
-          backgroundColor: "rgba(227,179,65,.08)",
+          borderColor: "#2563EB",
+          backgroundColor: "rgba(37,99,235,.07)",
           fill: true,
           tension: 0.35,
           pointRadius: 2,
+          borderWidth: 2,
         },
         {
           label: "Avg MTTE (days)",
           data: smooth(mttes),
-          borderColor: "#f85149",
-          backgroundColor: "rgba(248,81,73,.08)",
+          borderColor: "#DC2626",
+          backgroundColor: "rgba(220,38,38,.06)",
           fill: true,
           tension: 0.35,
           pointRadius: 2,
+          borderWidth: 2,
         },
         {
           label: "Exposure Window (days)",
           data: smooth(exposures),
-          borderColor: "#bc8cff",
-          backgroundColor: "rgba(188,140,255,.06)",
+          borderColor: "#D97706",
+          backgroundColor: "rgba(217,119,6,.05)",
           fill: true,
           tension: 0.35,
           pointRadius: 2,
+          borderWidth: 2,
           borderDash: [4, 3],
         },
       ],
@@ -138,11 +141,11 @@ function renderTrendChart(trends) {
 function renderDomainPie(domains) {
   const ctx = document.getElementById("domainPieChart");
   const COLORS = {
-    os: "#58a6ff",
-    cloud: "#79c0ff",
-    saas: "#bc8cff",
-    webapp: "#e3b341",
-    other: "#484f58",
+    os:     "#2563EB",
+    cloud:  "#0369A1",
+    saas:   "#7C3AED",
+    webapp: "#D97706",
+    other:  "#9CA3AF",
   };
   if (state.charts.pie) state.charts.pie.destroy();
   state.charts.pie = new Chart(ctx, {
@@ -152,8 +155,8 @@ function renderDomainPie(domains) {
       datasets: [
         {
           data: domains.map((d) => d.count),
-          backgroundColor: domains.map((d) => COLORS[d.domain] ?? "#484f58"),
-          borderColor: "#161b22",
+          backgroundColor: domains.map((d) => COLORS[d.domain] ?? "#9CA3AF"),
+          borderColor: "#FFFFFF",
           borderWidth: 2,
         },
       ],
@@ -178,12 +181,14 @@ function renderDomainMttr(domains) {
         {
           label: "Avg MTTR (days)",
           data: domains.map((d) => d.avg_mttr_days),
-          backgroundColor: "#58a6ff",
+          backgroundColor: "#2563EB",
+          borderRadius: 4,
         },
         {
           label: "Avg MTTE (days)",
           data: domains.map((d) => d.avg_mtte_days),
-          backgroundColor: "#f85149",
+          backgroundColor: "#DC2626",
+          borderRadius: 4,
         },
       ],
     },
@@ -208,12 +213,13 @@ function renderEpssChart(data) {
           label: "CVE count",
           data: data.counts,
           backgroundColor: data.counts.map((_, i) => {
+            // Low score = blue (safe), high score = red (risky) — Hakuna palette
             const t = i / 9;
-            const r = Math.round(88 + t * 160);
-            const g = Math.round(166 - t * 117);
-            const b = Math.round(255 - t * 174);
-            return `rgb(${r},${g},${b})`;
+            if (t < 0.4) return `rgba(37,99,235,${0.4 + t * 0.6})`;
+            if (t < 0.7) return `rgba(217,119,6,${0.5 + t * 0.5})`;
+            return `rgba(220,38,38,${0.6 + t * 0.4})`;
           }),
+          borderRadius: 4,
         },
       ],
     },
@@ -301,7 +307,12 @@ function renderIngestLog(rows) {
       (r) => `
     <tr>
       <td>${r.source}</td>
-      <td style="color:${r.status === "ok" ? "var(--green)" : "var(--red)"}">${r.status}</td>
+      <td>
+        <span class="kpi-status">
+          <span class="dot ${r.status === "ok" ? "dot-green" : "dot-red"}"></span>
+          ${r.status}
+        </span>
+      </td>
       <td>${r.records?.toLocaleString() ?? "–"}</td>
       <td style="color:var(--text-muted);max-width:300px;overflow:hidden;text-overflow:ellipsis">${
         r.message ?? "–"
