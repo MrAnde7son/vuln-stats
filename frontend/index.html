@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VulnStats – Live Vulnerability Metrics</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">⚡</span>
+        <span class="logo-text">VulnStats</span>
+        <span class="logo-sub">Live Vulnerability Intelligence</span>
+      </div>
+      <div class="header-controls">
+        <select id="domainFilter" title="Filter by domain">
+          <option value="">All Domains</option>
+          <option value="os">Operating Systems</option>
+          <option value="cloud">Cloud</option>
+          <option value="saas">SaaS</option>
+          <option value="webapp">Web Apps</option>
+          <option value="other">Other</option>
+        </select>
+        <button id="refreshBtn" class="btn-primary">↻ Refresh</button>
+        <button id="triggerIngestBtn" class="btn-secondary" title="Trigger manual data ingest">
+          ⬇ Re-Ingest
+        </button>
+        <div id="lastUpdated" class="last-updated">–</div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- KPI Cards -->
+    <section class="kpi-grid" id="kpiGrid">
+      <div class="kpi-card" id="kpi-total">
+        <div class="kpi-label">Total CVEs Tracked</div>
+        <div class="kpi-value" id="totalCves">–</div>
+      </div>
+      <div class="kpi-card highlight-red" id="kpi-kev">
+        <div class="kpi-label">CISA KEV Entries</div>
+        <div class="kpi-value" id="kevCves">–</div>
+        <div class="kpi-sub">Actively Exploited</div>
+      </div>
+      <div class="kpi-card highlight-orange" id="kpi-mttr">
+        <div class="kpi-label">Avg MTTR</div>
+        <div class="kpi-value" id="avgMttr">–</div>
+        <div class="kpi-sub" id="medianMttr">Median: – days</div>
+      </div>
+      <div class="kpi-card highlight-yellow" id="kpi-mtte">
+        <div class="kpi-label">Avg MTTE</div>
+        <div class="kpi-value" id="avgMtte">–</div>
+        <div class="kpi-sub">Mean Time to Exploit</div>
+      </div>
+      <div class="kpi-card highlight-purple" id="kpi-exposure">
+        <div class="kpi-label">Avg Exposure Window</div>
+        <div class="kpi-value" id="avgExposure">–</div>
+        <div class="kpi-sub">MTTR − MTTE</div>
+      </div>
+      <div class="kpi-card highlight-blue" id="kpi-exploited-pct">
+        <div class="kpi-label">Exploited Before Patch</div>
+        <div class="kpi-value" id="exploitedPct">–</div>
+        <div class="kpi-sub">of observed KEV CVEs</div>
+      </div>
+    </section>
+
+    <!-- Charts row 1 -->
+    <section class="charts-row">
+      <div class="chart-card wide">
+        <div class="chart-header">
+          <h2>MTTR / MTTE Trend <span class="badge">12-month rolling avg</span></h2>
+          <select id="trendMonths">
+            <option value="12">Last 12 months</option>
+            <option value="24" selected>Last 24 months</option>
+            <option value="48">Last 4 years</option>
+          </select>
+        </div>
+        <canvas id="trendChart" height="80"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-header"><h2>CVEs by Domain</h2></div>
+        <canvas id="domainPieChart" height="140"></canvas>
+      </div>
+    </section>
+
+    <!-- Charts row 2 -->
+    <section class="charts-row">
+      <div class="chart-card">
+        <div class="chart-header"><h2>Avg MTTR by Domain (days)</h2></div>
+        <canvas id="domainMttrChart" height="140"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-header"><h2>EPSS Score Distribution</h2></div>
+        <canvas id="epssChart" height="140"></canvas>
+      </div>
+    </section>
+
+    <!-- CVE Table -->
+    <section class="table-section">
+      <div class="table-header">
+        <h2>Recent CVEs <span class="badge" id="tableCount">–</span></h2>
+        <div class="table-filters">
+          <label>
+            <input type="checkbox" id="kevOnlyFilter" /> KEV only
+          </label>
+          <label>
+            Min CVSS
+            <input type="number" id="minCvss" min="0" max="10" step="0.1" placeholder="0" style="width:60px" />
+          </label>
+          <input type="text" id="cveSearch" placeholder="Search CVE-ID…" style="width:160px" />
+        </div>
+      </div>
+      <div class="table-wrapper">
+        <table id="cveTable">
+          <thead>
+            <tr>
+              <th>CVE ID</th>
+              <th>Domain</th>
+              <th>Published</th>
+              <th>CVSS</th>
+              <th>EPSS</th>
+              <th>MTTR (days)</th>
+              <th>MTTE (days)</th>
+              <th>Exposure Window</th>
+              <th>KEV</th>
+            </tr>
+          </thead>
+          <tbody id="cveTableBody">
+            <tr><td colspan="9" class="loading">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="table-pagination">
+        <button id="prevPage" class="btn-secondary" disabled>← Prev</button>
+        <span id="pageInfo">Page 1</span>
+        <button id="nextPage" class="btn-secondary">Next →</button>
+      </div>
+    </section>
+
+    <!-- Ingest Log -->
+    <section class="table-section">
+      <div class="table-header"><h2>Ingest Log</h2></div>
+      <div class="table-wrapper">
+        <table id="ingestTable">
+          <thead>
+            <tr>
+              <th>Source</th><th>Status</th><th>Records</th><th>Message</th><th>Ran At</th>
+            </tr>
+          </thead>
+          <tbody id="ingestTableBody">
+            <tr><td colspan="5" class="loading">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- CVE Detail Modal -->
+  <div id="cveModal" class="modal hidden">
+    <div class="modal-content">
+      <button class="modal-close" id="modalClose">✕</button>
+      <h2 id="modalCveId">–</h2>
+      <p id="modalDesc" class="modal-desc">–</p>
+      <div class="modal-grid">
+        <div><span class="modal-label">Published</span><span id="modalPublished">–</span></div>
+        <div><span class="modal-label">Fixed</span><span id="modalFixed">–</span></div>
+        <div><span class="modal-label">Exploited</span><span id="modalExploited">–</span></div>
+        <div><span class="modal-label">CVSS</span><span id="modalCvss">–</span></div>
+        <div><span class="modal-label">EPSS</span><span id="modalEpss">–</span></div>
+        <div><span class="modal-label">Domain</span><span id="modalDomain">–</span></div>
+        <div><span class="modal-label">MTTR</span><span id="modalMttr">–</span></div>
+        <div><span class="modal-label">MTTE</span><span id="modalMtte">–</span></div>
+        <div><span class="modal-label">Exposure Window</span><span id="modalExposure">–</span></div>
+        <div><span class="modal-label">In KEV</span><span id="modalKev">–</span></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>
