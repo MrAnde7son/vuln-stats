@@ -200,6 +200,100 @@ function renderDomainMttr(domains) {
   });
 }
 
+/* ── MTTR History bar/line chart ─────────────────────────────────────────── */
+function renderMttrHistory(history) {
+  const ctx = document.getElementById("mttrHistoryChart");
+  if (state.charts.mttrHistory) state.charts.mttrHistory.destroy();
+
+  // Only show years with at least one fixed CVE
+  const data = history.filter((h) => h.cve_count > 0);
+  if (!data.length) return;
+
+  const labels = data.map((h) => h.year);
+
+  state.charts.mttrHistory = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Avg MTTR (days)",
+          data: data.map((h) => h.avg_mttr),
+          backgroundColor: "rgba(37,99,235,0.65)",
+          borderColor: "#2563EB",
+          borderWidth: 1,
+          borderRadius: 4,
+          order: 2,
+        },
+        {
+          label: "Median MTTR (days)",
+          data: data.map((h) => h.median_mttr),
+          type: "line",
+          borderColor: "#7C3AED",
+          backgroundColor: "transparent",
+          pointRadius: 4,
+          borderWidth: 2,
+          tension: 0.3,
+          order: 1,
+        },
+        {
+          label: "90th-pct MTTR (days)",
+          data: data.map((h) => h.p90_mttr),
+          type: "line",
+          borderColor: "#DC2626",
+          backgroundColor: "transparent",
+          pointRadius: 3,
+          borderWidth: 1.5,
+          borderDash: [5, 3],
+          tension: 0.3,
+          order: 0,
+        },
+        {
+          label: "CVEs with fix",
+          data: data.map((h) => h.cve_count),
+          type: "bar",
+          backgroundColor: "rgba(16,163,74,0.18)",
+          borderColor: "#16A34A",
+          borderWidth: 1,
+          borderRadius: 4,
+          yAxisID: "yCount",
+          order: 3,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { position: "top" },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const v = ctx.parsed.y;
+              if (v == null) return " –";
+              if (ctx.dataset.label === "CVEs with fix")
+                return ` CVEs with fix: ${v.toLocaleString()}`;
+              return ` ${ctx.dataset.label}: ${v.toFixed(1)} days`;
+            },
+          },
+        },
+      },
+      scales: {
+        y: {
+          title: { display: true, text: "Days to Remediate" },
+          beginAtZero: true,
+        },
+        yCount: {
+          position: "right",
+          title: { display: true, text: "CVE count" },
+          beginAtZero: true,
+          grid: { drawOnChartArea: false },
+        },
+      },
+    },
+  });
+}
+
 /* ── EPSS histogram ──────────────────────────────────────────────────────── */
 function renderEpssChart(data) {
   const ctx = document.getElementById("epssChart");
@@ -331,6 +425,7 @@ async function loadAll() {
   const domainsQ = `/api/domains`;
   const epssQ = `/api/epss/distribution`;
   const ingestQ = `/api/ingest/status`;
+  const mttrHistoryQ = `/api/mttr-history`;
 
   // Build CVE query
   const cvep = new URLSearchParams();
@@ -342,13 +437,14 @@ async function loadAll() {
   const cvesQ = `/api/cves?${cvep}`;
 
   try {
-    const [summary, trends, domains, epss, cves, ingest] = await Promise.all([
+    const [summary, trends, domains, epss, cves, ingest, mttrHistory] = await Promise.all([
       apiFetch(summaryQ),
       apiFetch(trendsQ),
       apiFetch(domainsQ),
       apiFetch(epssQ),
       apiFetch(cvesQ),
       apiFetch(ingestQ),
+      apiFetch(mttrHistoryQ),
     ]);
 
     renderKPIs(summary);
@@ -356,6 +452,7 @@ async function loadAll() {
     renderDomainPie(domains);
     renderDomainMttr(domains);
     renderEpssChart(epss);
+    renderMttrHistory(mttrHistory);
 
     // Filter table by search string client-side
     const filtered = state.search

@@ -265,8 +265,13 @@ async def ingest_nvd(
 
 
 # ── OSV.dev (fix dates) ───────────────────────────────────────────────────────
-async def enrich_fixed_dates(client: httpx.AsyncClient, db: AsyncSession, batch: int = 50):
-    """Query OSV for CVEs that have no fixed_date yet."""
+async def enrich_fixed_dates(client: httpx.AsyncClient, db: AsyncSession, batch: int = 200):
+    """Query OSV for CVEs that have no fixed_date yet.
+
+    Uses POST /v1/query with {"id": cve_id} – the correct OSV API format for
+    CVE alias lookups.  The advisory's published date is used as a proxy for
+    when the fix was first made available.
+    """
     result = await db.execute(
         select(Vulnerability.cve_id).where(Vulnerability.fixed_date.is_(None)).limit(batch)
     )
@@ -277,7 +282,7 @@ async def enrich_fixed_dates(client: httpx.AsyncClient, db: AsyncSession, batch:
         try:
             resp = await client.post(
                 OSV_QUERY_URL,
-                json={"package": {}, "query": cve_id},
+                json={"id": cve_id},   # correct: search by CVE alias ID
                 timeout=30,
             )
             if resp.status_code != 200:
@@ -285,15 +290,18 @@ async def enrich_fixed_dates(client: httpx.AsyncClient, db: AsyncSession, batch:
             osvs = resp.json().get("vulns", [])
             fixed_date = None
             for osv in osvs:
-                for alias in osv.get("aliases", []):
-                    if alias == cve_id:
-                        for affected in osv.get("affected", []):
-                            for rng in affected.get("ranges", []):
-                                for event in rng.get("events", []):
-                                    if "fixed" in event:
-                                        fixed_date = safe_date(
-                                            osv.get("modified") or osv.get("published")
-                                        )
+                # Only consider advisories that actually have a fix event
+                has_fix = any(
+                    "fixed" in event
+                    for affected in osv.get("affected", [])
+                    for rng in affected.get("ranges", [])
+                    for event in rng.get("events", [])
+                )
+                if has_fix:
+                    # published = when the fix advisory was first released
+                    fixed_date = safe_date(osv.get("published") or osv.get("modified"))
+                    if fixed_date:
+                        break
             if fixed_date:
                 result2 = await db.execute(
                     select(Vulnerability).where(Vulnerability.cve_id == cve_id)
