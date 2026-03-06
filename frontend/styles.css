@@ -72,16 +72,9 @@ header {
 .logo { display: flex; align-items: center; gap: 10px; }
 
 .logo-mark {
-  width: 30px;
-  height: 30px;
-  background: var(--brand);
-  border-radius: 7px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   flex-shrink: 0;
 }
-.logo-mark svg { width: 18px; height: 18px; fill: #fff; }
+.logo-mark svg { width: auto; height: 28px; }
 
 .logo-name {
   font-size: .95rem;
