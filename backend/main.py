@@ -86,6 +86,16 @@ class TrendPoint(BaseModel):
     cve_count: int
 
 
+class MttrHistoryPoint(BaseModel):
+    year: str          # "YYYY"
+    avg_mttr: Optional[float]
+    median_mttr: Optional[float]
+    p90_mttr: Optional[float]
+    avg_mtte: Optional[float]
+    cve_count: int     # CVEs with fix dates in that year
+    total_count: int   # All CVEs published that year
+
+
 class CveDetail(BaseModel):
     cve_id: str
     description: Optional[str]
@@ -214,6 +224,52 @@ async def get_trends(
                 avg_mtte=_round(sum(mttes) / len(mttes)) if mttes else None,
                 avg_exposure=_round(sum(exposures) / len(exposures)) if exposures else None,
                 cve_count=len(items),
+            )
+        )
+    return out
+
+
+@app.get("/api/mttr-history", response_model=list[MttrHistoryPoint])
+async def mttr_history(db: AsyncSession = Depends(get_db)):
+    """Global MTTR trend by publication year, covering all historical data.
+
+    Groups every CVE that has a fix date by the year it was published and
+    returns MTTR statistics (avg, median, 90th-pct) per year so the caller
+    can plot how remediation speed has changed over time.
+    """
+    result = await db.execute(select(Vulnerability))
+    rows = result.scalars().all()
+
+    # Bucket all CVEs by publication year
+    all_by_year: dict[str, list] = {}
+    for r in rows:
+        if r.published_date:
+            yr = str(r.published_date.year)
+            all_by_year.setdefault(yr, []).append(r)
+
+    out = []
+    for year in sorted(all_by_year):
+        all_items = all_by_year[year]
+        fixed_items = [i for i in all_items if i.mttr_days is not None]
+        mttrs = sorted(i.mttr_days for i in fixed_items)
+        mttes = [i.mtte_days for i in fixed_items if i.mtte_days is not None]
+
+        n = len(mttrs)
+        median_mttr = None
+        p90_mttr = None
+        if n:
+            median_mttr = mttrs[n // 2] if n % 2 == 1 else (mttrs[n // 2 - 1] + mttrs[n // 2]) / 2
+            p90_mttr = mttrs[int(n * 0.9)]
+
+        out.append(
+            MttrHistoryPoint(
+                year=year,
+                avg_mttr=_round(sum(mttrs) / n) if n else None,
+                median_mttr=_round(median_mttr),
+                p90_mttr=_round(p90_mttr),
+                avg_mtte=_round(sum(mttes) / len(mttes)) if mttes else None,
+                cve_count=n,
+                total_count=len(all_items),
             )
         )
     return out
